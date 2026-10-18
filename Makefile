@@ -10,10 +10,10 @@ clean: recursive-clean
 
 # pylint: R=refactor, C0103 == Invalid name
 lint:
-	pep8 --ignore=E1,W1,W503 \
+	pycodestyle --ignore=E1,W1,W503,E722 \
 		cplay && \
 	pylint \
 		--indent-string='    ' \
-		--disable=missing-docstring,bad-continuation,star-args,invalid-name,bare-except \
+		--disable=missing-docstring,invalid-name,bare-except,useless-object-inheritance,too-many-instance-attributes,too-many-branches,import-outside-toplevel,too-many-public-methods,too-many-locals,too-many-function-args,too-many-lines,consider-using-max-builtin,consider-using-with,global-statement,fixme \
 		--extension-pkg-whitelist=alsaaudio \
 		cplay

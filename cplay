@@ -19,20 +19,20 @@ along with this program; if not, write to the Free Software
 Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 """
 
+import curses
+import getopt  # pylint: disable=deprecated-module
+import glob
+import locale
 import os
+import random
 import re
+import select
+import signal
+import string  # pylint: disable=deprecated-module
+import subprocess
 import sys
 import time
-import glob
-import string
-import random
-import curses
-import getopt
-import signal
-import select
-import locale
 import traceback
-import subprocess
 
 __version__ = 'cplay 1.50andreasvc'
 
@@ -158,7 +158,10 @@ class Application(object):
                     self.player.stopped = True  # end of playlist hack
                     if self.player.returncode:
                         players = PLAYERS[PLAYERS.index(self.player) + 1:]
-                        if self.play(self.player.entry, self.player.offset, players):
+                        if self.play(
+                                self.player.entry,
+                                self.player.offset,
+                                players):
                             continue
                     entry = self.win_playlist.change_active_entry(1)
                     if not entry:
@@ -195,11 +198,11 @@ class Application(object):
     def play(self, entry, offset=0, players=None):
         self.play_tid = None
         if entry is None or offset is None:
-            return
+            return False
         self.player.stop(quiet=True)
         for player in PLAYERS if players is None else players:
-            if (player.re_files.search(entry.pathname) and
-                    player.setup(entry, offset or entry.offset)):
+            if (player.re_files.search(entry.pathname)
+                    and player.setup(entry, offset or entry.offset)):
                 self.player = player
                 if self.player.play():
                     return True
@@ -274,8 +277,10 @@ class Application(object):
             self.input_string = re.sub(r'((.* )?)\w.*', r'\1',
                     self.input_string)
         elif ch:
-            self.input_string = '%s%c' % (self.input_string, ch)
+            self.input_string = '%s%c' % (  # pylint: disable=E1307
+                    self.input_string, ch)
         self.show_input()
+        return None
 
     def stop_input(self, *args):
         self.input_mode = 0
@@ -585,7 +590,7 @@ class ListWindow(Window):
 
     def newwin(self):
         if self.parent.rows <= 2 or self.parent.cols < 1:
-            return  # avoid crash when resizing too non-sensical size
+            return None  # avoid crash when resizing too non-sensical size
         return curses.newwin(self.parent.rows - 2, self.parent.cols,
                              self.parent.ypos + 2, self.parent.xpos)
 
@@ -596,10 +601,8 @@ class ListWindow(Window):
             self.scrptr = scrptr
             self.move(0, 0)
             self.clrtobot()
-            i = 0
-            for entry in self.buffer[self.scrptr:]:
+            for i, entry in enumerate(self.buffer[self.scrptr:]):
                 self.move(i, 0)
-                i += 1
                 self.putstr(entry)
                 if self.getyx()[0] == self.rows - 1:
                     break
@@ -725,28 +728,28 @@ class HelpWindow(ListWindow):
         ListWindow.__init__(self, parent)
         self.name = 'Help: ' + __version__
         self.keymap.bind('q', self.parent.help, ())
-        self.buffer = '''\
-  Global                               t, T  : tag current/regex
-  ------                               u, U  : untag current/regex
-  Up, Down, k, j, C-p, C-n,            Sp, i : invert current/all
-  PgUp, PgDn, K, J,
-  Home, End, g, G : movement
-  Enter           : chdir or play      Filelist
-  Tab             : filelist/playlist  --------
-  n, p            : next/prev track    a     : add (tagged) to playlist
-  z, x            : toggle pause/stop  s, S  : recursive search, toggle sort
-  Left, Right,                         BS, o : goto parent/specified dir
-  C-f, C-b    : seek forward/backward
-  C-a, C-e    : restart/end track
-  C-s, C-r, / : isearch                Playlist
-  C-g, Esc    : cancel                 --------
-  1..9, +, -  : volume control         d     : delete (tagged) tracks
-  c, v        : counter/volume mode    m, M  : move (tagged) tracks after/before
-  <, >        : horizontal scrolling   r, R  : toggle repeat/Random mode
-  C-l, l      : refresh, list mode     s, S  : shuffle/Sort playlist
-  D           : clear playlist         w, @  : write playlist, jump to active
-  h, q, Q     : help, quit?, Quit!
-'''.splitlines()
+        self.buffer = ['  ' + line for line in '''\
+Global                               t, T  : tag current/regex
+------                               u, U  : untag current/regex
+Up, Down, k, j, C-p, C-n,            Sp, i : invert current/all
+PgUp, PgDn, K, J,
+Home, End, g, G : movement
+Enter           : chdir or play      Filelist
+Tab             : filelist/playlist  --------
+n, p            : next/prev track    a     : add (tagged) to playlist
+z, x            : toggle pause/stop  s, S  : recursive search, toggle sort
+Left, Right,                         BS, o : goto parent/specified dir
+C-f, C-b    : seek forward/backward
+C-a, C-e    : restart/end track
+C-s, C-r, / : isearch                Playlist
+C-g, Esc    : cancel                 --------
+1..9, +, -  : volume control         d     : delete (tagged) tracks
+c, v        : counter/volume mode    m, M  : move (tagged) tracks after/before
+<, >        : horizontal scrolling   r, R  : toggle repeat/Random mode
+C-l, l      : refresh, list mode     s, S  : shuffle/Sort playlist
+D           : clear playlist         w, @  : write playlist, jump to active
+h, q, Q     : help, quit?, Quit!
+'''.splitlines()]
 
 
 class ListEntry(object):
@@ -771,7 +774,8 @@ class ListEntry(object):
     def vp_pathname(self):
         return self.pathname
 
-    vps = [['filename', vp_filename],
+    # Shared across entries so changing the viewpoint updates the whole list.
+    vps = [['filename', vp_filename],  # noqa: RUF012
            ['pathname', vp_pathname]]
 
 
@@ -874,8 +878,8 @@ class TagListWindow(ListWindow):
     def get_tagged(self):
         return [x for x in self.buffer if x.tagged]
 
-    def not_tagged(self, l):
-        return [x for x in l if not x.tagged]
+    def not_tagged(self, buffer):
+        return [x for x in buffer if not x.tagged]
 
 
 class FilelistWindow(TagListWindow):
@@ -948,7 +952,7 @@ class FilelistWindow(TagListWindow):
             elif os.path.isdir(pathname):
                 self.search_recursively(re_tmp, pathname, results)
 
-    def get_title(self):
+    def get_title(self, data=''):
         self.name = 'Filelist: '
         return ListWindow.get_title(self, re.sub('/?$', '/', self.cwd))
 
@@ -983,9 +987,7 @@ class FilelistWindow(TagListWindow):
                 pathname = os.path.join(self.cwd, filename)
                 if os.path.isdir(pathname):
                     dirs.append(pathname)
-                elif valid_song(filename):
-                    files.append(pathname)
-                elif valid_playlist(filename):
+                elif valid_song(filename) or valid_playlist(filename):
                     files.append(pathname)
         except OSError:
             pass
@@ -995,8 +997,8 @@ class FilelistWindow(TagListWindow):
         for i in files:
             self.buffer.append(ListEntry(i))
         if prevdir:
-            for bufptr in range(len(self.buffer)):
-                if self.buffer[bufptr].filename == prevdir:
+            for bufptr, entry in enumerate(self.buffer):
+                if entry.filename == prevdir:
                     self.bufptr = bufptr
                     break
             else:
@@ -1095,7 +1097,7 @@ class PlaylistWindow(TagListWindow):
     def command_change_viewpoint(self, cls=PlaylistEntry):
         TagListWindow.command_change_viewpoint(self, cls)
 
-    def get_title(self):
+    def get_title(self, data=''):
         def space_out(value, s):
             return s if value else (' ' * len(s))
         self.name = 'Playlist %s %s' % (
@@ -1155,7 +1157,7 @@ class PlaylistWindow(TagListWindow):
 
     def add_cue(self, cuefile, added):
         dirname = os.path.dirname(cuefile)
-        artist = album = filename = ''
+        artist = filename = ''
         tracks = []
         for line in readfile(cuefile).splitlines():
             keyword, args = line.strip().split(' ', 1)
@@ -1170,8 +1172,8 @@ class PlaylistWindow(TagListWindow):
             elif keyword == 'TITLE':
                 if tracks:
                     tracks[-1]['title'] = args.strip('"\'')
-                else:
-                    album = args.strip('"\'')
+                # else:
+                #     album = args.strip('"\'')
             elif keyword == 'PERFORMER':
                 if tracks:
                     tracks[-1]['artist'] = args.strip('"\'')
@@ -1211,6 +1213,8 @@ class PlaylistWindow(TagListWindow):
             f = self.add_m3u
         elif re.search(r'\.pls$', pathname, re.IGNORECASE):
             f = self.add_pls
+        else:
+            return
         for line in readfile(pathname).splitlines():
             f(line.strip(), added)
 
@@ -1242,7 +1246,7 @@ class PlaylistWindow(TagListWindow):
 
     def change_active_entry(self, direction):
         if not self.buffer:
-            return
+            return None
         old = self.active_entry
         new = None
         if self.random:
@@ -1254,7 +1258,7 @@ class PlaylistWindow(TagListWindow):
                 elif self.repeat:
                     self.random_left = self.buffer[:]
                 else:
-                    return
+                    return None
                 if new is None:
                     new = random.choice(self.random_left)
                     self.random_left.remove(new)
@@ -1268,13 +1272,13 @@ class PlaylistWindow(TagListWindow):
                     self.random_next.append(self.random_prev.pop())
                     new = self.random_prev[-1]
                 else:
-                    return
+                    return None
             if old:
                 old.active = False
         elif old:
             index = self.buffer.index(old) + direction
             if not (0 <= index < len(self.buffer) or self.repeat):
-                return
+                return None
             old.active = False
             new = self.buffer[index % len(self.buffer)]
         else:
@@ -1336,30 +1340,30 @@ class PlaylistWindow(TagListWindow):
     def command_move(self, after):
         if not self.buffer:
             return
-        current_entry, l = self.current(), self.get_tagged()
-        if l:
+        current_entry, buffer = self.current(), self.get_tagged()
+        if buffer:
             if current_entry.tagged:
                 return
             self.buffer = self.not_tagged(self.buffer)
             self.bufptr = self.buffer.index(current_entry) + after
         else:
-            l = [current_entry]
+            buffer = [current_entry]
             self.buffer.pop(self.bufptr)
             self.bufptr += 1 if after else -1
             if self.bufptr < 0:
                 self.bufptr = 0
-        self.buffer[self.bufptr:self.bufptr] = l
+        self.buffer[self.bufptr:self.bufptr] = buffer
         self.update()
 
     def command_shuffle(self):
-        l = []
+        buffer = []
         n = len(self.buffer)
         while n > 0:
             n -= 1
             r = random.randint(0, n)
-            l.append(self.buffer[r])
+            buffer.append(self.buffer[r])
             del self.buffer[r]
-        self.buffer = l
+        self.buffer = buffer
         self.bufptr = 0
         self.update()
         APP.status('Shuffled playlist... Oops?', 1)
@@ -1402,7 +1406,7 @@ class PlaylistWindow(TagListWindow):
         if not re.search(r'\.m3u$', pathname, re.IGNORECASE):
             pathname = '%s%s' % (pathname, '.m3u')
         try:
-            with open(pathname, 'w') as out:
+            with open(pathname, 'w', encoding='utf8') as out:
                 out.writelines('%s\n' % item.pathname for item in self.buffer)
             self.pathname = pathname
             APP.status('ok', 1)
@@ -1430,10 +1434,10 @@ class Player(object):
     def setup(self, entry, offset):
         self.argv = self.commandline.split()
         self.argv[0] = which(self.argv[0])
-        for i in range(len(self.argv)):
-            if self.argv[i] == '%s':
+        for i, arg in enumerate(self.argv):
+            if arg == '%s':
                 self.argv[i] = entry.pathname
-            elif self.argv[i] == '%d':
+            elif arg == '%d':
                 self.argv[i] = str(offset * self.fps)
         self.entry = entry
         self.offset = offset
@@ -1632,7 +1636,7 @@ class FFPlay(Player):
 
     def read_fd(self, fd):
         self.buf = os.read(fd, 512)
-        # Duration is only announced at the start, and could be split across reads,
+        # Duration is only announced at startup and may be split across reads,
         # so keep a longer buffer that includes the last incomplete line.
         self._duration_buf += self.buf
         match = self.re_duration.search(self._duration_buf)
@@ -1702,10 +1706,11 @@ class FIFOControl(object):
             if os.path.exists(CONTROL_FIFO):
                 os.unlink(CONTROL_FIFO)
             os.mkfifo(CONTROL_FIFO, 0o600)
-            self.fd = open(CONTROL_FIFO, 'r+b', 0)
+            # Keep the FIFO open for commands throughout the event loop.
+            self.fd = open(CONTROL_FIFO, 'r+b', 0)  # noqa: SIM115
         except IOError:
             # warn that we're disabling the fifo because someone raced us?
-            return
+            pass
 
     def handle_command(self):
         argv = self.fd.readline().strip().split(None, 1)
@@ -1722,8 +1727,10 @@ class FIFOControl(object):
         APP.mixer(argv[0], int(argv[1]))
 
 
-IGNOREMIXER = re.compile(r'\b(input|capture|microphone|mic)\b', flags=re.IGNORECASE)
 class Mixer(object):
+    re_ignore = re.compile(r'\b(input|capture|microphone|mic)\b',
+            flags=re.IGNORECASE)
+
     def __init__(self):
         self._channels = []
 
@@ -1750,7 +1757,8 @@ class Mixer(object):
 
 class OssMixer(Mixer):
     def __init__(self):
-        import ossaudiodev
+        Mixer.__init__(self)
+        import ossaudiodev  # pylint: disable=E0401,W4901
         self._openmixer = ossaudiodev.openmixer
         self._chmap = {
             'PCM': ossaudiodev.SOUND_MIXER_PCM,
@@ -1781,16 +1789,16 @@ class OssMixer(Mixer):
 
 class AlsaMixer(Mixer):
     def __init__(self):
+        Mixer.__init__(self)
         import alsaaudio
         self._Mixer = alsaaudio.Mixer
-        self._channels = []
         # HACK: guess valid card indexes (0 could be disabled)
         for cardindex in range(3):
             try:
                 for name in alsaaudio.mixers(cardindex):
                     volumecap = self._Mixer(
                             name, cardindex=cardindex).volumecap()
-                    if volumecap and not IGNOREMIXER.search(volumecap):
+                    if volumecap and not self.re_ignore.search(volumecap):
                         self._channels.append((name, cardindex))
             except alsaaudio.ALSAAudioError:
                 pass
@@ -1821,11 +1829,13 @@ class AlsaMixer(Mixer):
 
 class PulseMixer(Mixer):
     def __init__(self):
+        Mixer.__init__(self)
         import pulsectl
         self.pulse = pulsectl.Pulse('cplay')
         self._channels = [
                 (sink.description, sink) for sink in self.pulse.sink_list()
-                if sink.description and not IGNOREMIXER.search(sink.description)]
+                if sink.description
+                and not self.re_ignore.search(sink.description)]
         if not self._channels:
             self.pulse.close()
             raise ValueError('could not find pulse volume control')
@@ -1834,7 +1844,8 @@ class PulseMixer(Mixer):
         index = self._channels[0][1].index if self._channels else None
         self._channels = [
                 (sink.description, sink) for sink in self.pulse.sink_list()
-                if sink.description and not IGNOREMIXER.search(sink.description)]
+                if sink.description
+                and not self.re_ignore.search(sink.description)]
         for position, (_, sink) in enumerate(self._channels):
             if sink.index == index:
                 self._channels = (self._channels[position:]
@@ -1851,10 +1862,10 @@ class PulseMixer(Mixer):
         sink = self._sink()
         return int(sink.volume.value_flat * 100) if sink is not None else 0
 
-    def set(self, vol):
+    def set(self, level):
         sink = self._sink()
         if sink is not None:
-            self.pulse.volume_set_all_chans(sink, vol / 100.0)
+            self.pulse.volume_set_all_chans(sink, level / 100.0)
 
     def cue(self, increment):
         sink = self._sink()
@@ -1945,6 +1956,7 @@ def which(program):
     for path in os.environ.get('PATH', os.defpath).split(':'):
         if path and os.path.exists(os.path.join(path, program)):
             return os.path.join(path, program)
+    return None
 
 
 def cut(s, n, left=False):
@@ -1963,7 +1975,8 @@ def readfile(pathname):
             encoding = MAGIC.buffer(data)
         except AttributeError:
             encoding = MAGIC.from_buffer(data)
-    if sys.version[0] == '2':
+    # Retain the byte-string return value for supported Python 2 runtimes.
+    if sys.version_info[0] == 2:  # noqa: UP036
         return data.decode(encoding).encode(locale.getpreferredencoding())
     return data.decode(encoding)
 

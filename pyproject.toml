@@ -1,0 +1,18 @@
+[tool.ruff.lint]
+ignore = [
+	# We inherit from object for Python 2 compatibility.
+	"UP004",
+	# Preserve %-formatting.
+	"UP031",
+	# Allow catching all exceptions.
+	"BLE001",
+	# try-except-pass is for suppressing exceptions; we don't want to log them.
+	"S110",
+	# bare except is used to capture all exceptions
+	"E722",
+	# Replace aliased errors with `OSError`
+	"UP024",
+	# max() is not more readable than if
+	"PLR1730",
+]
+
