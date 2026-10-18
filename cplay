@@ -1684,6 +1684,7 @@ class FIFOControl(object):
         APP.mixer(argv[0], int(argv[1]))
 
 
+IGNOREMIXER = re.compile(r'\b(input|capture|microphone|mic)\b', flags=re.IGNORECASE)
 class Mixer(object):
     def __init__(self):
         self._channels = []
@@ -1751,12 +1752,12 @@ class AlsaMixer(Mixer):
                 for name in alsaaudio.mixers(cardindex):
                     volumecap = self._Mixer(
                             name, cardindex=cardindex).volumecap()
-                    if volumecap and 'Capture Volume' not in volumecap:
+                    if volumecap and not IGNOREMIXER.search(volumecap):
                         self._channels.append((name, cardindex))
             except alsaaudio.ALSAAudioError:
                 pass
         if not self._channels:
-            raise ValueError
+            raise ValueError('could not find alsa volume control')
         self._mixer = self._Mixer(
                 control=self._channels[0][0], cardindex=self._channels[0][1])
 
@@ -1782,34 +1783,54 @@ class AlsaMixer(Mixer):
 
 class PulseMixer(Mixer):
     def __init__(self):
-        self._channels = [('Master', sink) for sink in self._list_sinks()]
+        import pulsectl
+        self.pulse = pulsectl.Pulse('cplay')
+        self._channels = [
+                (sink.description, sink) for sink in self.pulse.sink_list()
+                if sink.description and not IGNOREMIXER.search(sink.description)]
         if not self._channels:
-            raise ValueError
-        self.set(self.get())
+            self.pulse.close()
+            raise ValueError('could not find pulse volume control')
 
-    def _list_sinks(self):
-        result = subprocess.Popen(['pactl', 'list', 'sinks'],
-                shell=False, stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE).communicate()[0].split(b'\n\n')
-        return dict((re.match(b'Sink #([0-9]+)', a).group(1), a)
-                for a in result)
+    def _sink(self):
+        index = self._channels[0][1].index if self._channels else None
+        self._channels = [
+                (sink.description, sink) for sink in self.pulse.sink_list()
+                if sink.description and not IGNOREMIXER.search(sink.description)]
+        for position, (_, sink) in enumerate(self._channels):
+            if sink.index == index:
+                self._channels = (self._channels[position:]
+                        + self._channels[:position])
+                break
+        return self._channels[0][1] if self._channels else None
+
+    def toggle(self):
+        self._sink()
+        if self._channels:
+            Mixer.toggle(self)
 
     def get(self):
-        return int(re.search(br'^\s+Volume: .* ([0-9]+)%',
-                self._list_sinks()[self._channels[0][1]],
-                flags=re.MULTILINE).group(1))
+        sink = self._sink()
+        return int(sink.volume.value_flat * 100) if sink is not None else 0
 
     def set(self, vol):
-        subprocess.check_call([
-                'pactl', '--', 'set-sink-volume', self._channels[0][1],
-                '%s%%' % vol])
+        sink = self._sink()
+        if sink is not None:
+            self.pulse.volume_set_all_chans(sink, vol / 100.0)
 
-    def cue(self, inc):
-        self.set('%+d' % inc)
+    def cue(self, increment):
+        sink = self._sink()
+        if sink is not None:
+            self.pulse.volume_change_all_chans(sink, increment / 100.0)
+
+    def close(self):
+        self.pulse.close()
 
     def __str__(self):
-        return 'volume %s%% (Pulse %s %s)' % (self.get(),
-                self._channels[0][0], self._channels[0][1])
+        volume = self.get()
+        if not self._channels:
+            return 'No PulseAudio output.'
+        return 'volume %s%% (Pulse %s)' % (volume, self._channels[0][0])
 
 
 class Stack(object):

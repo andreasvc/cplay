@@ -40,7 +40,7 @@ Other optional components:
 
 - reading metadata (tags): `mutagen <https://bitbucket.org/lazka/mutagen>`_
 - volume control: `alsaaudio <http://pyalsaaudio.sourceforge.net/>`_,
-  ``pulseaudio-utils`` (specifically the ``pactl`` command),
+  `pulsectl <https://pypi.org/project/pulsectl/>`_,
   OSS support is part of the standard library.
 - detect character encodings of playlists:
   `python-magic <https://github.com/ahupp/python-magic>`_
