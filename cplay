@@ -109,7 +109,8 @@ class Application(object):
         except:
             pass
         self.cursor(0)
-        signal.signal(signal.SIGCHLD, signal.SIG_IGN)
+        # Let subprocess collect exit statuses for player fallback.
+        signal.signal(signal.SIGCHLD, signal.SIG_DFL)
         signal.signal(signal.SIGHUP, self.handler_quit)
         signal.signal(signal.SIGINT, self.handler_quit)
         signal.signal(signal.SIGTERM, self.handler_quit)
@@ -153,8 +154,12 @@ class Application(object):
             self.win_filelist.listdir_maybe(now)
             if not self.player.stopped:
                 timeout = 0.5
-                if self.player.poll() is TERMINATED:
+                if self.player.poll() is not RUNNING:
                     self.player.stopped = True  # end of playlist hack
+                    if self.player.returncode:
+                        players = PLAYERS[PLAYERS.index(self.player) + 1:]
+                        if self.play(self.player.entry, self.player.offset, players):
+                            continue
                     entry = self.win_playlist.change_active_entry(1)
                     if not entry:
                         self.player.stopped = True
@@ -187,20 +192,21 @@ class Application(object):
         except:
             pass
 
-    def play(self, entry, offset=0):
+    def play(self, entry, offset=0, players=None):
         self.play_tid = None
         if entry is None or offset is None:
             return
         self.player.stop(quiet=True)
-        for player in PLAYERS:
+        for player in PLAYERS if players is None else players:
             if (player.re_files.search(entry.pathname) and
                     player.setup(entry, offset or entry.offset)):
                 self.player = player
-                self.player.play()
-                return
+                if self.player.play():
+                    return True
         APP.status('Player not found!', 1)
         # will try to play next item in playlist
         self.player.stopped = False
+        return False
 
     def delayed_play(self, entry, offset):
         if self.play_tid:
@@ -1417,6 +1423,7 @@ class Player(object):
         self.paused = False
         self.entry = self.time_setup = None
         self.tid = self.argv = self._proc = None
+        self.returncode = None
         self.offset = self.step = self.length = 0
         self.buf = ''
 
@@ -1437,6 +1444,7 @@ class Player(object):
         return self.argv[0]
 
     def play(self):
+        self.returncode = None
         try:
             self._proc = subprocess.Popen(
                     self.argv,
@@ -1512,6 +1520,7 @@ class Player(object):
         if self.stopped or self._proc is None:
             return NOTRUNNING  # there is no process.
         elif self._proc.poll() is not None:
+            self.returncode = self._proc.returncode
             self._proc = None
             APP.set_default_status('')
             APP.counter(0, 0)
