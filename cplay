@@ -332,7 +332,10 @@ class Window(object):
                 curses.tigetnum('lines'), curses.tigetnum('cols'), 0, 0)
 
     def resize(self):
-        self.w = self.newwin()
+        w = self.newwin()
+        if w is None:
+            return
+        self.w = w
         self.ypos, self.xpos = self.getbegyx()
         self.rows, self.cols = self.getmaxyx()
         self.keypad(1)
@@ -575,6 +578,8 @@ class ListWindow(Window):
         self.keymap.bind(['<'], self.hscroll, (-8, ))
 
     def newwin(self):
+        if self.parent.rows <= 2 or self.parent.cols < 1:
+            return  # avoid crash when resizing too non-sensical size
         return curses.newwin(self.parent.rows - 2, self.parent.cols,
                              self.parent.ypos + 2, self.parent.xpos)
 
