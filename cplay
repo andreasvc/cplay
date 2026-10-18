@@ -686,6 +686,9 @@ class ListWindow(Window):
         APP.status('ok', 1)
 
     def do_search(self, ch=None, advance=0):
+        if not self.buffer:
+            APP.status('List is empty', 1)
+            return
         if ch in [8, 127]:
             APP.input_string = APP.input_string[:-1]
         elif ch:
@@ -1697,6 +1700,8 @@ class FIFOControl(object):
 
     def handle_command(self):
         argv = self.fd.readline().strip().split(None, 1)
+        if not argv:
+            return
         if argv[0] in self.commands:
             f, a = self.commands[argv[0]]
             if a is None:
