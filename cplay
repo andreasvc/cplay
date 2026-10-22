@@ -1757,8 +1757,8 @@ class Mixer(object):
 
 class OssMixer(Mixer):
     def __init__(self):
-        Mixer.__init__(self)
         import ossaudiodev  # pylint: disable=E0401,W4901
+        Mixer.__init__(self)
         self._openmixer = ossaudiodev.openmixer
         self._chmap = {
             'PCM': ossaudiodev.SOUND_MIXER_PCM,
@@ -1783,35 +1783,36 @@ class OssMixer(Mixer):
         self._mixer.close()
 
     def __str__(self):
-        return 'volume %s%% (OSS %s:%s)' % (
-                self.get(), self._channels[0][0], self._channels[0][1])
+        return 'volume %s%% (OSS %s:%s)' % (self.get(), *self._channels[0])
 
 
 class AlsaMixer(Mixer):
     def __init__(self):
-        Mixer.__init__(self)
         import alsaaudio
+        Mixer.__init__(self)
         self._Mixer = alsaaudio.Mixer
-        # HACK: guess valid card indexes (0 could be disabled)
-        for cardindex in range(3):
+        # enumerate sound cards, collect mixers excluding mic/capture controls
+        for card in alsaaudio.cards():
+            device = 'hw:CARD=' + card
             try:
-                for name in alsaaudio.mixers(cardindex):
-                    volumecap = self._Mixer(
-                            name, cardindex=cardindex).volumecap()
-                    if volumecap and not self.re_ignore.search(volumecap):
-                        self._channels.append((name, cardindex))
+                for name in alsaaudio.mixers(device=device):
+                    mixer = self._Mixer(name, device=device)
+                    if (not self.re_ignore.search(name)
+                            and ('Joined Playback Volume' in mixer.volumecap()
+                            or 'Playback Volume' in mixer.volumecap())):
+                        self._channels.append((name, device))
             except alsaaudio.ALSAAudioError:
                 pass
         if not self._channels:
             raise ValueError('could not find alsa volume control')
         self._mixer = self._Mixer(
-                control=self._channels[0][0], cardindex=self._channels[0][1])
+                control=self._channels[0][0], device=self._channels[0][1])
 
     def toggle(self):
         self._channels.append(self._channels.pop(0))
         self._mixer.close()
         self._mixer = self._Mixer(
-                control=self._channels[0][0], cardindex=self._channels[0][1])
+                control=self._channels[0][0], device=self._channels[0][1])
 
     def get(self):
         return self._mixer.getvolume()[0]
@@ -1824,13 +1825,14 @@ class AlsaMixer(Mixer):
 
     def __str__(self):
         return 'volume %s%% (ALSA %s:%s) ' % (
-                self.get(), self._channels[0][0], self._channels[0][1])
+                self.get(), self._channels[0][0],
+                self._channels[0][1].split('=', 1)[1])
 
 
 class PulseMixer(Mixer):
     def __init__(self):
-        Mixer.__init__(self)
         import pulsectl
+        Mixer.__init__(self)
         self.pulse = pulsectl.Pulse('cplay')
         self._channels = [
                 (sink.description, sink) for sink in self.pulse.sink_list()
